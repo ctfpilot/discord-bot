@@ -47,6 +47,7 @@ command_context = CommandContext(
     github_repo_name=services.github_repo_name,
     github_enabled=services.github_enabled,
     project_id=services.project_id,
+    project_url=services.project_url,
     milestone_name=services.milestone_name,
     guild_id=guild_id,
     allowed_roles=config.allowed_role_ids,

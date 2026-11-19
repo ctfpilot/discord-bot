@@ -165,34 +165,37 @@ class GithubHandler:
             self.logger.error(f"Failed to set status field. Response: {r2.text}")
             return False, "Failed to set status field."
 
-    def get_project_node_id(self, org: str, project_number: int, is_org: bool = True):
+    def get_project_details(
+        self, owner: str, project_number: int, is_org: bool = True
+    ) -> tuple[str | None, str | None]:
+        """Return the project node ID and URL from GitHub."""
         if is_org:
             query = '''
             query($org: String!, $number: Int!) {
               organization(login: $org) {
-                projectV2(number: $number) { id title }
+                projectV2(number: $number) { id url }
               }
             }
             '''
-            variables = {"org": org, "number": project_number}
+            variables = {"org": owner, "number": project_number}
         else:
             query = '''
             query($user: String!, $number: Int!) {
               user(login: $user) {
-                projectV2(number: $number) { id title }
+                projectV2(number: $number) { id url }
               }
             }
             '''
-            variables = {"user": org, "number": project_number}
+            variables = {"user": owner, "number": project_number}
         r = requests.post(self.api_url, json={"query": query, "variables": variables}, headers=self.headers)
         if not r.ok:
             self.logger.error(f"Failed to fetch project: {r.status_code} {r.text}")
-            return None
+            return None, None
         try:
             data = r.json()
         except Exception as e:
             self.logger.error(f"Could not decode project response: {e}, content: {r.text}")
-            return None
+            return None, None
         data_node = data.get('data') or {}
         if is_org:
             owner_node = data_node.get('organization') or {}
@@ -201,9 +204,9 @@ class GithubHandler:
             owner_node = data_node.get('user') or {}
             project = owner_node.get('projectV2')
         if project and project.get('id'):
-            return project['id']
+            return project['id'], project.get('url')
         self.logger.error(f"Project not found in response: {data}")
-        return None
+        return None, None
 
     def get_issue_project_status(self, issue_number, project_id, issue_node_id):
         """Return the project status for the given issue in the given project, or 'Unknown' if not found."""

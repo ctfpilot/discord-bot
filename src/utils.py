@@ -96,6 +96,7 @@ class CommandContext:
     statuses: list[str]
     flag_prefix: str
     flag_length: int
+    project_url: str | None = None
 
     def is_authorized(self, interaction: discord.Interaction) -> bool:
         return is_authorized(interaction, self.guild_id, self.allowed_roles)
