@@ -14,6 +14,7 @@ class AppServices:
     github_enabled: bool
     project_id: str | None
     milestone_name: str
+    project_url: str | None = None
 
 def initialize_services(config: BotConfig, logger: Logger) -> AppServices:
     github_repo_name = config.github_repo
@@ -21,6 +22,7 @@ def initialize_services(config: BotConfig, logger: Logger) -> AppServices:
     project_org = github_repo_name.split("/")[0] if github_repo_name else None
     project_number = config.github_project_id
     project_id = None
+    project_url = None
 
     if not github_enabled:
         raise GithubInitializationException("GitHub not enabled due to missing configuration.")
@@ -38,7 +40,7 @@ def initialize_services(config: BotConfig, logger: Logger) -> AppServices:
             project_number_int = None
 
         if project_number_int is not None:
-            project_id = gh.get_project_node_id(project_org, project_number_int, is_org=True)
+            project_id, project_url = gh.get_project_details(project_org, project_number_int, is_org=True)
             if not project_id:
                 logger.error(f"Could not resolve project node ID for org={project_org}, number={project_number}")
 
@@ -48,4 +50,5 @@ def initialize_services(config: BotConfig, logger: Logger) -> AppServices:
         github_repo_name=github_repo_name,
         github_enabled=github_enabled,
         project_id=project_id,
+        project_url=project_url,
         milestone_name=config.milestone_name)
