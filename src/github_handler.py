@@ -1,3 +1,5 @@
+from urllib.parse import urlencode
+
 import requests
 from logger import Logger
 from github import Github, Issue, Repository
@@ -204,6 +206,65 @@ class GithubHandler:
             return project['id']
         self.logger.error(f"Project not found in response: {data}")
         return None
+
+    def get_author_challenges(
+        self, project_id: str, author: str, limit: int, cursor: str | None = None
+    ) -> tuple[str, list[tuple[str, dict]], str | None]:
+        """Return the filtered project link, challenge issues with cursors, and the next cursor."""
+        filter_query = f"assignee:{author} repo:{self.repo.full_name} label:Challenge is:issue"
+        query = '''
+        query($id: ID!, $filter: String!, $limit: Int!, $cursor: String) {
+          node(id: $id) {
+            ... on ProjectV2 {
+              url
+              views(first: 1) { nodes { number } }
+              items(first: $limit, after: $cursor, query: $filter) {
+                pageInfo { hasNextPage endCursor }
+                edges {
+                  cursor
+                  node {
+                    content {
+                      ... on Issue {
+                        number
+                        title
+                        url
+                        labels(first: 100) { nodes { name } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        '''
+        response = requests.post(
+            self.api_url,
+            json={"query": query, "variables": {
+                "id": project_id, "filter": filter_query, "limit": limit, "cursor": cursor,
+            }},
+            headers=self.headers,
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        project = (data.get("data") or {}).get("node")
+        if data.get("errors") or not project:
+            raise ValueError(f"Could not read the GitHub project: {data.get('errors') or 'project not found'}")
+
+        project_url = project["url"].rstrip("/")
+        views = project["views"]["nodes"] or []
+        if views and views[0]:
+            project_url += f"/views/{views[0]['number']}"
+        filtered_url = f"{project_url}?{urlencode({'filterQuery': filter_query})}"
+        items = project["items"]
+        issues = []
+        for edge in items["edges"] or []:
+            if edge and edge["node"] and edge["node"].get("content"):
+                issues.append((edge["cursor"], edge["node"]["content"]))
+        page_info = items["pageInfo"]
+        next_cursor = page_info["endCursor"] if page_info["hasNextPage"] else None
+        return filtered_url, issues, next_cursor
 
     def get_issue_project_status(self, issue_number, project_id, issue_node_id):
         """Return the project status for the given issue in the given project, or 'Unknown' if not found."""
