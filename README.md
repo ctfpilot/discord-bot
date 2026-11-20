@@ -130,6 +130,7 @@ All commands are slash commands. Authorization requires the invoking member to h
     - `difficulty [difficulty] [issue_number]`: Update challenge difficulty. Issue number may be skipped if run in a channel with a linked challenge issue.
     - `category [category] [issue_number]`: Update challenge category. Issue number may be skipped if run in a channel with a linked challenge issue.
   - `info [issue_number]`: Show challenge metadata. Issue number may be skipped if run in a channel with a linked challenge issue.
+  - `author [username]`: Privately list challenges assigned to a GitHub username in the configured project. Omit the username to use your linked GitHub account when available. Otherwise the bot tries your server nickname if set and falls back to your Discord username if there are no matches. Use Previous and Next to browse up to 10 results per page.
   - `link_channel [issue_number]`: Link current channel to issue
   - `clear_channel`: Clear current channel mapping
 

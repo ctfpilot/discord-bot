@@ -1,14 +1,17 @@
 """Cog for the /challenge command group and all subcommands."""
 
+import re
 from typing import Optional
 
 from discord import app_commands
 from discord.ext import commands
+from requests.exceptions import RequestException
 
 from bot import BotInteraction
 from store import Store
 from utils import discord_clean, resolve_issue_or_reply
 
+from .author import AuthorChallengesView
 from .create import CreateGroup
 from .update import UpdateGroup
 
@@ -64,6 +67,35 @@ class ChallengeCog(commands.Cog):
         except Exception as e:
             ctx.logger.error(f"Failed to fetch issue info: {e}")
             await interaction.edit_original_response(content="❌ Failed to fetch challenge info. Please contact an admin.")
+
+    @challenge_group.command(name="author", description="List challenges assigned to a GitHub user.")
+    @app_commands.describe(username="GitHub username (defaults to your linked account or Discord name)")
+    async def author(self, interaction: BotInteraction, username: Optional[str] = None):
+        ctx = interaction.client.command_context
+        if await ctx.deny_if_unauthorized(interaction) or await ctx.deny_if_github_disabled(interaction):
+            return
+
+        if username is None:
+            accounts = Store.get_key("github_accounts", {})
+            linked = accounts.get(str(interaction.user.id)) if isinstance(accounts, dict) else None
+            candidates = (linked,) if isinstance(linked, str) and linked else (interaction.user.nick, interaction.user.name)
+        else:
+            candidates = (username,)
+        names = (name.strip().removeprefix("@").lower() for name in candidates if name)
+        usernames = [name for name in dict.fromkeys(names) if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,38}", name)]
+        if not usernames:
+            await interaction.response.send_message("Enter a GitHub username.", ephemeral=True)
+            return
+        if not ctx.project_id:
+            await interaction.response.send_message("No GitHub Project is configured or could be resolved.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        try:
+            await AuthorChallengesView(interaction.user.id).start(interaction, usernames)
+        except (RequestException, ValueError) as e:
+            ctx.logger.error(f"Failed to list author challenges: {e}")
+            await interaction.edit_original_response(content="Could not load challenges from the GitHub Project.")
 
     @challenge_group.command(name="link_channel", description="Manually link an issue to this channel")
     @app_commands.describe(issue_number="GitHub issue number to link to this channel.")
