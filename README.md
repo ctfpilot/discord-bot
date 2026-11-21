@@ -120,6 +120,8 @@ Environment may be set via `.env`, Docker, or CLI flags. Required core variables
 All commands are slash commands. Authorization requires the invoking member to have at least one role ID in `DISCORD_ALLOWED_ROLES` and be in the configured guild.
 
 - `/challenges [status] [page]`: Paginated list (10 per page) filtered by issue state.
+- `/github-account link <username>`: Save or update your GitHub username for challenge lookups.
+- `/github-account unlink`: Remove your saved GitHub username. Users can remove their own link after losing a bot role.
 - `/challenge`
   - `create`: Create challenge
     - `issue [name] [category] [difficulty] [status]`: Create challenge issue, and link it to the current channel
