@@ -1,5 +1,6 @@
 """Cog for the /challenge command group and all subcommands."""
 
+import asyncio
 from typing import Optional
 
 from discord import app_commands
@@ -48,6 +49,11 @@ class ChallengeCog(commands.Cog):
                     project_status = ctx.gh.get_issue_project_status(issue.number, ctx.project_id, issue.node_id)
                 except Exception as e:
                     ctx.logger.error(f"Error fetching project status: {e}")
+            repository_url = ctx.gh.repo.html_url
+            try:
+                repository_url = await asyncio.to_thread(ctx.gh.get_challenge_repository_url, issue)
+            except Exception as e:
+                ctx.logger.warning(f"Failed to resolve challenge repository link for issue #{issue.number}: {e}")
             info_msg = (
                 f"**Challenge Info**\n"
                 f"Title: {discord_clean(name, max_len=256)}\n"
@@ -58,7 +64,7 @@ class ChallengeCog(commands.Cog):
                 f"Issue Status: {discord_clean(global_status, max_len=256)}"
                 f"\n\n"
                 f"[View Issue]({issue.html_url})\n"
-                f"[View Repository]({ctx.gh.repo.html_url})\n"
+                f"[View Repository]({repository_url})\n"
             )
             await interaction.edit_original_response(content=info_msg)
         except Exception as e:
