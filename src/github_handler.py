@@ -1,3 +1,6 @@
+import re
+from urllib.parse import quote
+
 import requests
 from logger import Logger
 from github import Github, Issue, Repository
@@ -51,6 +54,109 @@ class GithubHandler:
 
     def get_issue(self, issue_number):
         return self.repo.get_issue(number=issue_number)
+
+    def get_challenge_repository_url(self, issue: Issue.Issue) -> str:
+        """Resolve an issue to its challenge folder when it has one unambiguous PR target."""
+        repository_url = self.repo.html_url
+        pull_url = re.escape(f"{repository_url}/pull/") + r"([1-9][0-9]*)"
+        # The scaffolding workflow includes this link when it creates the issue.
+        pull_numbers = {int(number) for number in re.findall(
+            rf"^Initial code has been generated in {pull_url}\.[ \t]*$",
+            issue.body or "",
+            re.MULTILINE,
+        )}
+        targets = self._get_challenge_pull_targets(pull_numbers)
+        if not targets:
+            linked_numbers = self._get_linked_pull_numbers(issue.node_id)
+            targets = self._get_challenge_pull_targets(linked_numbers - pull_numbers)
+            pull_numbers.update(linked_numbers)
+
+        if not targets:
+            # For an existing issue, the workflow adds a plain reference in the PR body.
+            referenced_numbers = set()
+            for event in issue.get_timeline():
+                if event.event != "cross-referenced":
+                    continue
+                source = event.raw_data.get("source") or {}
+                related_issue = source.get("issue") or {}
+                pull_request = related_issue.get("pull_request") or {}
+                if match := re.fullmatch(pull_url, pull_request.get("html_url") or ""):
+                    referenced_numbers.add(int(match[1]))
+            targets = self._get_challenge_pull_targets(
+                referenced_numbers - pull_numbers,
+                issue_reference=f"This is the initial code for issue #{issue.number}.",
+            )
+
+        return targets.pop() if len(targets) == 1 else repository_url
+
+    def _get_challenge_pull_targets(
+        self, pull_numbers: set[int], issue_reference: str | None = None,
+    ) -> set[str]:
+        targets = set()
+        for number in pull_numbers:
+            try:
+                pull = self.repo.get_pull(number)
+                # An ordinary cross-reference can point to another challenge's PR.
+                if issue_reference and issue_reference not in (pull.body or ""):
+                    continue
+                if pull.state == "open":
+                    branch = pull.head
+                elif pull.merged:
+                    branch = pull.base
+                else:
+                    continue
+                if branch.repo is None:
+                    continue
+
+                folders = set()
+                for file in pull.get_files():
+                    parts = file.filename.split("/")
+                    if len(parts) >= 4 and parts[0] == "challenges" and file.status != "removed":
+                        folders.add("/".join(parts[:3]))
+                if len(folders) != 1:
+                    continue
+
+                folder = folders.pop()
+                contents = branch.repo.get_contents(folder, ref=branch.ref)
+                if isinstance(contents, list) and any(item.name == "challenge.yml" for item in contents):
+                    targets.add(f"{branch.repo.html_url}/tree/{quote(branch.ref)}/{quote(folder)}")
+            except UnknownObjectException:
+                continue
+
+        return targets
+
+    def _get_linked_pull_numbers(self, issue_id: str) -> set[int]:
+        query = """
+        query($id: ID!) {
+          node(id: $id) {
+            ... on Issue {
+              closedByPullRequestsReferences(first: 100, includeClosedPrs: true) {
+                pageInfo { hasNextPage }
+                nodes { number repository { nameWithOwner } }
+              }
+            }
+          }
+        }
+        """
+        try:
+            response = requests.post(
+                self.api_url, json={"query": query, "variables": {"id": issue_id}},
+                headers=self.headers, timeout=5,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            self.logger.warning(f"Failed to look up PRs linked to issue {issue_id}: {exc}")
+            return set()
+
+        issue = (payload.get("data") or {}).get("node") or {}
+        linked = issue.get("closedByPullRequestsReferences")
+        if not linked or linked["pageInfo"]["hasNextPage"]:
+            return set()
+        return {
+            pull["number"] for pull in linked["nodes"]
+            if pull and pull["repository"]["nameWithOwner"].casefold() == self.repo.full_name.casefold()
+        }
 
     def set_issue_labels(self, issue, labels):
         issue.set_labels(*labels)
